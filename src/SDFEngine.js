@@ -35,19 +35,29 @@ export class SDFEngine {
         };
 
         // Create the screen quad
+        // Using PlaneGeometry(2,2) with a vertex shader that forces it to fill screen
         const geometry = new THREE.PlaneGeometry(2, 2);
         this.material = new THREE.ShaderMaterial({
             vertexShader,
             fragmentShader,
             uniforms: this.uniforms,
             depthWrite: false,
-            depthTest: false
+            depthTest: false,
+            side: THREE.DoubleSide // Ensure it renders regardless of winding
         });
 
         this.mesh = new THREE.Mesh(geometry, this.material);
-        // Frustum culling disabled because the quad is always in front of camera
         this.mesh.frustumCulled = false; 
+        this.mesh.renderOrder = -999; // Ensure it's drawn behind everything else (like Gizmos)
         this.scene.add(this.mesh);
+
+        // Debug Helper: Grid to visualize where the "real" floor is relative to SDF
+        const grid = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
+        grid.position.y = 0; // The actual zero plane
+        this.scene.add(grid);
+
+        const axes = new THREE.AxesHelper(5);
+        this.scene.add(axes);
 
         // Initial Setup
         this.resize();

@@ -20,6 +20,10 @@ export class EditorUI {
         this.gui.add(settings, 'addTorus').name('+ Add Torus');
         
         this.listFolder = this.gui.addFolder('Shapes');
+        
+        // Debug folder
+        const debug = this.gui.addFolder('Debug');
+        debug.add(this.engine.mesh, 'visible').name('Toggle SDF Render');
     }
 
     addRandomShape(type) {

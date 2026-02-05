@@ -2,7 +2,9 @@ export const vertexShader = /* glsl */`
     varying vec2 vUv;
     void main() {
         vUv = uv;
-        gl_Position = vec4(position, 1.0);
+        // Use standard clip space quad logic.
+        // We assume the geometry is a plane from -1 to 1 in XY
+        gl_Position = vec4(position.xy, 1.0, 1.0); // Z=1.0 puts it at the far plane
     }
 `;
 
@@ -62,7 +64,7 @@ export const fragmentShader = /* glsl */`
     float fbm(vec2 p) {
         float f = 0.0;
         float w = 0.5;
-        for (int i = 0; i < 3; i++) { // Low octaves for performance
+        for (int i = 0; i < 4; i++) { 
             f += w * noise(p);
             p *= 2.0;
             w *= 0.5;
@@ -71,14 +73,10 @@ export const fragmentShader = /* glsl */`
     }
 
     float getTerrainHeight(vec2 p) {
-        // Large scale features
+        // More subtle terrain
         float h = noise(p * 0.1) * 2.0;
-        
-        // Detail
         h += fbm(p * 0.5) * 0.5;
-        
-        // Lift the terrain up so it's visible (camera at y=4, terrain base around y=-2.0)
-        return h - 2.0; 
+        return h - 3.0; // Lower terrain to y = -3 to ensure it's below shapes
     }
 
     // --- SDF Primitives ---
@@ -122,11 +120,9 @@ export const fragmentShader = /* glsl */`
     vec4 map(vec3 p) {
         // 1. Base Terrain
         float h = getTerrainHeight(p.xz);
-        
-        // Signed distance to terrain heightfield
         float dTerrain = p.y - h;
         
-        // Procedural Grid Texture
+        // Procedural Grid Texture on Terrain
         vec2 gridUV = p.xz;
         float gridSize = 4.0; 
         vec2 grid = abs(fract(gridUV / gridSize) - 0.5);
@@ -134,11 +130,11 @@ export const fragmentShader = /* glsl */`
         
         // Terrain Color
         vec3 colTerrain = mix(
-            vec3(0.3, 0.35, 0.3), // Dark Greenish
-            vec3(0.5, 0.5, 0.45),   // Lighter Earth
+            vec3(0.2, 0.25, 0.2), 
+            vec3(0.4, 0.4, 0.35),   
             noise(p.xz * 0.1)
         );
-        colTerrain = mix(colTerrain, vec3(0.6, 0.6, 0.7), gridLine * 0.5); // Stronger grid lines
+        colTerrain = mix(colTerrain, vec3(0.5, 0.6, 0.6), gridLine * 0.3);
 
         vec4 res = vec4(dTerrain, colTerrain);
 
@@ -168,7 +164,7 @@ export const fragmentShader = /* glsl */`
     // --- Raymarching ---
 
     vec3 calcNormal(vec3 p) {
-        const float h = 0.01; // Larger epsilon for smooth terrain normals
+        const float h = 0.001; 
         const vec2 k = vec2(1, -1);
         return normalize(
             k.xyy * map(p + k.xyy * h).x +
@@ -181,7 +177,7 @@ export const fragmentShader = /* glsl */`
     float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
         float res = 1.0;
         float t = mint;
-        for(int i = 0; i < 16; i++) { // Low iterations for shadows
+        for(int i = 0; i < 32; i++) { 
             float h = map(ro + rd * t).x;
             if( h < 0.001 ) return 0.0;
             res = min(res, k * h / t);
@@ -204,50 +200,60 @@ export const fragmentShader = /* glsl */`
         vec3 rd = normalize(forward + (screenPos.x * right + screenPos.y * up) * fovScale);
 
         float t = 0.0;
-        float maxDist = 200.0;
+        float maxDist = 300.0;
         vec4 res = vec4(-1.0);
+        int steps = 0;
         
         // Raymarch
         for(int i = 0; i < 256; i++) {
+            steps = i;
             vec3 p = ro + rd * t;
             res = map(p);
-            // Hit when distance is small and positive
-            if(res.x < 0.001 * (1.0 + t * 0.1) || t > maxDist) break;
-            t += res.x;
+            // Hit condition
+            if(res.x < 0.002 || t > maxDist) break;
+            
+            // Lipschitz limit adjustment for heightfields
+            // Terrain can have steep slopes, standard SDF marching overshoots.
+            t += res.x * 0.5; 
         }
 
         vec3 col = vec3(0.0);
         
         // Sky Gradient
-        vec3 skyCol = mix(vec3(0.6, 0.7, 0.8), vec3(0.1, 0.2, 0.4), rd.y * 0.5 + 0.5);
+        vec3 skyCol = mix(vec3(0.5, 0.6, 0.7), vec3(0.1, 0.15, 0.25), rd.y * 0.5 + 0.5);
 
         if(t < maxDist) {
             vec3 p = ro + rd * t;
             vec3 n = calcNormal(p);
             vec3 mate = res.yzw;
 
-            vec3 sunDir = normalize(vec3(0.6, 0.5, 0.5));
+            vec3 sunDir = normalize(vec3(0.6, 0.6, 0.4));
             float sunDif = clamp(dot(n, sunDir), 0.0, 1.0);
-            float sunSha = softShadow(p + n * 0.1, sunDir, 0.1, 10.0, 8.0);
+            float sunSha = softShadow(p + n * 0.02, sunDir, 0.05, 10.0, 8.0);
             
             vec3 skyDir = vec3(0.0, 1.0, 0.0);
             float skyDif = clamp(0.5 + 0.5 * dot(n, skyDir), 0.0, 1.0);
             
             vec3 lin = vec3(0.0);
-            lin += 1.5 * sunDif * vec3(1.0, 0.95, 0.8) * sunSha;
-            lin += 0.5 * skyDif * vec3(0.5, 0.6, 0.8);
+            lin += 1.8 * sunDif * vec3(1.0, 0.9, 0.8) * sunSha;
+            lin += 0.6 * skyDif * vec3(0.5, 0.6, 0.8);
             
             col = mate * lin;
             
             // Fog
-            col = mix(col, skyCol, 1.0 - exp(-0.01 * t * t));
+            float fogDensity = 0.01;
+            float fogFactor = 1.0 - exp(-fogDensity * t);
+            col = mix(col, skyCol, fogFactor);
         } else {
             col = skyCol;
+            
+            // Debug: If no hit, visualize ray direction faintly
+            col += vec3(0.05) * step(0.0, sin(rd.x * 50.0) + sin(rd.y * 50.0)); 
         }
 
-        // Gamma
+        // Gamma correction
         col = pow(col, vec3(0.4545));
-
+        
         gl_FragColor = vec4(col, 1.0);
     }
 `;
