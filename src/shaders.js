@@ -27,7 +27,7 @@ export const fragmentShader = /* glsl */`
         vec3 color;
         float blend;    // Smoothness factor
         int operation;  // 0: Union, 1: Subtract, 2: Intersect
-        bool active;
+        int active;     // Changed to int for robustness
     };
 
     uniform Shape uShapes[MAX_SHAPES];
@@ -72,13 +72,13 @@ export const fragmentShader = /* glsl */`
 
     float getTerrainHeight(vec2 p) {
         // Large scale features
-        float h = noise(p * 0.1) * 3.0;
+        float h = noise(p * 0.1) * 2.0;
         
         // Detail
-        h += fbm(p * 0.5) * 1.0;
+        h += fbm(p * 0.5) * 0.5;
         
-        // Lift the terrain up so it's visible (camera at y=4, terrain base around y=-1.5)
-        return h - 1.5; 
+        // Lift the terrain up so it's visible (camera at y=4, terrain base around y=-2.0)
+        return h - 2.0; 
     }
 
     // --- SDF Primitives ---
@@ -124,8 +124,7 @@ export const fragmentShader = /* glsl */`
         float h = getTerrainHeight(p.xz);
         
         // Estimator: p.y - h is vertical distance. 
-        // We multiply by 0.5 to keep raymarching conservative/stable on slopes.
-        float dTerrain = (p.y - h) * 0.5;
+        float dTerrain = (p.y - h) * 0.4;
         
         // Procedural Grid Texture
         vec2 gridUV = p.xz;
@@ -135,8 +134,8 @@ export const fragmentShader = /* glsl */`
         
         // Terrain Color
         vec3 colTerrain = mix(
-            vec3(0.2, 0.25, 0.2), // Dark Greenish
-            vec3(0.4, 0.4, 0.35),   // Lighter Earth
+            vec3(0.3, 0.35, 0.3), // Dark Greenish
+            vec3(0.5, 0.5, 0.45),   // Lighter Earth
             noise(p.xz * 0.1)
         );
         colTerrain = mix(colTerrain, vec3(0.6, 0.6, 0.7), gridLine * 0.5); // Stronger grid lines
@@ -146,7 +145,7 @@ export const fragmentShader = /* glsl */`
         // 2. Combine with Shapes
         for(int i = 0; i < MAX_SHAPES; i++) {
             if(i >= uShapeCount) break;
-            if(!uShapes[i].active) continue;
+            if(uShapes[i].active == 0) continue;
 
             vec3 localP = p - uShapes[i].position;
             float d = 0.0;
@@ -205,16 +204,16 @@ export const fragmentShader = /* glsl */`
         vec3 rd = normalize(forward + (screenPos.x * right + screenPos.y * up) * fovScale);
 
         float t = 0.0;
-        float maxDist = 100.0;
+        float maxDist = 200.0;
         vec4 res = vec4(-1.0);
         
         // Raymarch
-        for(int i = 0; i < 100; i++) {
+        for(int i = 0; i < 256; i++) {
             vec3 p = ro + rd * t;
             res = map(p);
             // Dynamic threshold based on distance to reduce artifacts at distance
-            if(abs(res.x) < 0.001 * (1.0 + t * 0.1) || t > maxDist) break;
-            t += res.x;
+            if(abs(res.x) < 0.0005 * (1.0 + t * 0.05) || t > maxDist) break;
+            t += res.x * 0.8;
         }
 
         vec3 col = vec3(0.0);

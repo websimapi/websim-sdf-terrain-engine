@@ -63,7 +63,7 @@ export class SDFEngine {
                 color: new THREE.Vector3(1, 1, 1),
                 blend: 0.2,
                 operation: 0,
-                active: false
+                active: 0
             });
         }
         return arr;
@@ -83,7 +83,7 @@ export class SDFEngine {
             color: config.color ? config.color.clone() : new THREE.Vector3(1, 0, 0.5),
             blend: config.blend ?? 0.5,
             operation: config.operation ?? OPERATIONS.UNION,
-            active: true
+            active: 1
         };
 
         this.shapes.push(shape);
@@ -111,9 +111,9 @@ export class SDFEngine {
                 uniformShape.color.copy(s.color);
                 uniformShape.blend = s.blend;
                 uniformShape.operation = s.operation;
-                uniformShape.active = true;
+                uniformShape.active = 1;
             } else {
-                uniformShape.active = false;
+                uniformShape.active = 0;
             }
         }
     }
