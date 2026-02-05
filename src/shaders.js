@@ -73,10 +73,18 @@ export const fragmentShader = /* glsl */`
     }
 
     float getTerrainHeight(vec2 p) {
-        // More subtle terrain
-        float h = noise(p * 0.1) * 2.0;
-        h += fbm(p * 0.5) * 0.5;
-        return h - 3.0; // Lower terrain to y = -3 to ensure it's below shapes
+        // Complex terrain generation
+        float h = 0.0;
+        h += noise(p * 0.15) * 4.0;      // Base hills
+        h += fbm(p * 0.4) * 1.5;         // Details
+        
+        // Flatten the center area (radius ~8) to create a "workspace"
+        float d = length(p);
+        float workspace = smoothstep(8.0, 20.0, d);
+        
+        // Base floor level at -2.0, blending into the noisy terrain
+        // The noise is 0..1 based, so we scale and offset
+        return mix(-2.0, -4.0 + h, workspace);
     }
 
     // --- SDF Primitives ---
@@ -122,19 +130,27 @@ export const fragmentShader = /* glsl */`
         float h = getTerrainHeight(p.xz);
         float dTerrain = p.y - h;
         
-        // Procedural Grid Texture on Terrain
+        // Procedural Grid Texture on Terrain (SDF-based grid lines)
         vec2 gridUV = p.xz;
-        float gridSize = 4.0; 
+        float gridSize = 2.0; 
         vec2 grid = abs(fract(gridUV / gridSize) - 0.5);
-        float gridLine = 1.0 - smoothstep(0.48, 0.5, max(grid.x, grid.y));
+        // Sharper grid lines
+        float gridLine = 1.0 - smoothstep(0.46, 0.48, max(grid.x, grid.y));
         
-        // Terrain Color
-        vec3 colTerrain = mix(
-            vec3(0.2, 0.25, 0.2), 
-            vec3(0.4, 0.4, 0.35),   
-            noise(p.xz * 0.1)
-        );
-        colTerrain = mix(colTerrain, vec3(0.5, 0.6, 0.6), gridLine * 0.3);
+        // Terrain Material System
+        vec3 colGrass = vec3(0.1, 0.35, 0.15);
+        vec3 colDirt = vec3(0.35, 0.3, 0.2);
+        vec3 colRock = vec3(0.4, 0.4, 0.45);
+        
+        // Mix based on noise and slope/height
+        float n = noise(p.xz * 0.2);
+        vec3 colTerrain = mix(colGrass, colDirt, smoothstep(0.4, 0.7, n));
+        
+        // Add rock at lower "carved" depths or high peaks (simple height based here)
+        colTerrain = mix(colTerrain, colRock, smoothstep(2.0, 5.0, h));
+
+        // Apply Grid (White lines, subtle)
+        colTerrain = mix(colTerrain, vec3(1.0), gridLine * 0.15);
 
         vec4 res = vec4(dTerrain, colTerrain);
 
@@ -219,8 +235,8 @@ export const fragmentShader = /* glsl */`
 
         vec3 col = vec3(0.0);
         
-        // Sky Gradient
-        vec3 skyCol = mix(vec3(0.5, 0.6, 0.7), vec3(0.1, 0.15, 0.25), rd.y * 0.5 + 0.5);
+        // Sky Gradient (Brighter, more inviting)
+        vec3 skyCol = mix(vec3(0.6, 0.8, 0.95), vec3(0.2, 0.3, 0.5), rd.y * 0.5 + 0.5);
 
         if(t < maxDist) {
             vec3 p = ro + rd * t;

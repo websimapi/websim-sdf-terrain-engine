@@ -51,11 +51,7 @@ export class SDFEngine {
         this.mesh.renderOrder = -999; // Ensure it's drawn behind everything else (like Gizmos)
         this.scene.add(this.mesh);
 
-        // Debug Helper: Grid to visualize where the "real" floor is relative to SDF
-        const grid = new THREE.GridHelper(50, 50, 0x444444, 0x222222);
-        grid.position.y = 0; // The actual zero plane
-        this.scene.add(grid);
-
+        // Debug Helper: Axes only (Removed GridHelper as it conflicts with SDF terrain visuals)
         const axes = new THREE.AxesHelper(5);
         this.scene.add(axes);
 
