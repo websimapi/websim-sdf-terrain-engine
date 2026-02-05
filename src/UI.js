@@ -18,6 +18,18 @@ export class EditorUI {
         this.gui.add(settings, 'addSphere').name('+ Add Sphere');
         this.gui.add(settings, 'addBox').name('+ Add Box');
         this.gui.add(settings, 'addTorus').name('+ Add Torus');
+
+        const physicsFolder = this.gui.addFolder('Global Physics');
+        const physSettings = {
+            resetAll: () => {
+                this.engine.shapes.forEach(s => {
+                    s.velocity.set(0,0,0);
+                    s.position.y = Math.max(s.position.y, 0);
+                });
+                this.engine.updateUniforms();
+            }
+        };
+        physicsFolder.add(physSettings, 'resetAll').name('Reset Velocities');
         
         this.listFolder = this.gui.addFolder('Shapes');
         
@@ -30,7 +42,7 @@ export class EditorUI {
         // Generate a position slightly in front of where camera might be looking or random
         const pos = new THREE.Vector3(
             (Math.random() - 0.5) * 4,
-            0.5 + Math.random() * 2,
+            2.0 + Math.random() * 4,
             (Math.random() - 0.5) * 4
         );
         
@@ -92,6 +104,19 @@ export class EditorUI {
         folder.add(params, 'op', { 'Merge (Add)': 0, 'Carve (Sub)': 1, 'Intersect': 2 }).name('Operation').onChange(v => {
             shape.operation = parseInt(v);
             this.engine.updateUniforms();
+        });
+
+        const physFolder = folder.addFolder('Physics');
+        const physParams = {
+            enable: shape.physics,
+            bounciness: shape.restitution
+        };
+        
+        physFolder.add(physParams, 'enable').name('Enable Gravity').onChange(v => {
+            shape.physics = v;
+        });
+        physFolder.add(physParams, 'bounciness', 0, 1.2).onChange(v => {
+            shape.restitution = v;
         });
 
         folder.add(params, 'delete').name('DELETE SHAPE');

@@ -4,7 +4,8 @@ export const vertexShader = /* glsl */`
         vUv = uv;
         // Use standard clip space quad logic.
         // We assume the geometry is a plane from -1 to 1 in XY
-        gl_Position = vec4(position.xy, 1.0, 1.0); // Z=1.0 puts it at the far plane
+        // Z=0.0 to ensure it is not clipped by far plane
+        gl_Position = vec4(position.xy, 0.0, 1.0); 
     }
 `;
 
@@ -73,18 +74,19 @@ export const fragmentShader = /* glsl */`
     }
 
     float getTerrainHeight(vec2 p) {
-        // Complex terrain generation
-        float h = 0.0;
-        h += noise(p * 0.15) * 4.0;      // Base hills
-        h += fbm(p * 0.4) * 1.5;         // Details
-        
-        // Flatten the center area (radius ~8) to create a "workspace"
+        // Flatten the center area (radius ~10) to create a "workspace"
         float d = length(p);
-        float workspace = smoothstep(8.0, 20.0, d);
+        float workspace = smoothstep(5.0, 25.0, d);
+        
+        float h = 0.0;
+        // Only calculate heavy noise far away
+        if(workspace > 0.01) {
+            h += noise(p * 0.1) * 6.0;      
+            h += fbm(p * 0.3) * 2.0;         
+        }
         
         // Base floor level at -2.0, blending into the noisy terrain
-        // The noise is 0..1 based, so we scale and offset
-        return mix(-2.0, -4.0 + h, workspace);
+        return mix(-2.0, -5.0 + h, workspace);
     }
 
     // --- SDF Primitives ---
@@ -235,8 +237,8 @@ export const fragmentShader = /* glsl */`
 
         vec3 col = vec3(0.0);
         
-        // Sky Gradient (Brighter, more inviting)
-        vec3 skyCol = mix(vec3(0.6, 0.8, 0.95), vec3(0.2, 0.3, 0.5), rd.y * 0.5 + 0.5);
+        // Sky Gradient
+        vec3 skyCol = mix(vec3(0.6, 0.8, 0.95), vec3(0.25, 0.4, 0.65), rd.y * 0.5 + 0.5);
 
         if(t < maxDist) {
             vec3 p = ro + rd * t;

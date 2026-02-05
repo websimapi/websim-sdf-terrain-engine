@@ -73,9 +73,11 @@ function animate() {
     requestAnimationFrame(animate);
     
     const time = clock.getElapsedTime();
+    const dt = clock.getDelta();
+
     controls.update();
     
-    sdfEngine.update(time);
+    sdfEngine.update(time, dt);
     
     // We don't use standard render(scene, camera) because we are drawing a fullscreen quad
     // The quad is in the scene, so we render the scene, but the logic is all in the fragment shader

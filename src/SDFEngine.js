@@ -89,7 +89,12 @@ export class SDFEngine {
             color: config.color ? config.color.clone() : new THREE.Vector3(1, 0, 0.5),
             blend: config.blend ?? 0.5,
             operation: config.operation ?? OPERATIONS.UNION,
-            active: 1
+            active: 1,
+            // Physics Props
+            physics: false,
+            velocity: new THREE.Vector3(0, 0, 0),
+            mass: 1.0,
+            restitution: 0.6 // Bounciness
         };
 
         this.shapes.push(shape);
@@ -124,9 +129,47 @@ export class SDFEngine {
         }
     }
 
-    update(time) {
+    update(time, deltaTime) {
         this.uniforms.uTime.value = time;
         
+        // Physics Loop
+        const gravity = -9.8;
+        const floorY = -2.0;
+
+        for (const shape of this.shapes) {
+            if (shape.physics) {
+                // Gravity
+                shape.velocity.y += gravity * deltaTime;
+                
+                // Integrate Position
+                shape.position.x += shape.velocity.x * deltaTime;
+                shape.position.y += shape.velocity.y * deltaTime;
+                shape.position.z += shape.velocity.z * deltaTime;
+
+                // Simple Floor Collision (based on our flat workspace terrain)
+                // Approximate size collision (sphere radius or box half-height)
+                let bottomOffset = 0;
+                if(shape.type === SHAPE_TYPES.SPHERE) bottomOffset = shape.size.x;
+                else if(shape.type === SHAPE_TYPES.BOX) bottomOffset = shape.size.y;
+                else if(shape.type === SHAPE_TYPES.TORUS) bottomOffset = shape.size.y; // torus tube radius
+
+                if (shape.position.y - bottomOffset < floorY) {
+                    shape.position.y = floorY + bottomOffset;
+                    shape.velocity.y *= -shape.restitution;
+                    
+                    // Friction
+                    shape.velocity.x *= 0.95;
+                    shape.velocity.z *= 0.95;
+                }
+            }
+        }
+        
+        // Only update uniforms if physics ran or something changed
+        // For simplicity, we update every frame if physics is active on any shape
+        if (this.shapes.some(s => s.physics)) {
+            this.updateUniforms();
+        }
+
         // Sync camera for raymarching
         this.uniforms.uCamPos.value.copy(this.camera.position);
         
