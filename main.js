@@ -8,7 +8,7 @@ const canvas = document.createElement('canvas');
 document.body.appendChild(canvas);
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5)); // Limit pixel ratio for perf
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.0)); // Limit pixel ratio for perf
 
 const scene = new THREE.Scene();
 

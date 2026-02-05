@@ -21,9 +21,9 @@ export const fragmentShader = /* glsl */`
     // SDF Data
     #define MAX_SHAPES 32
     struct Shape {
-        int type;       // 0: Sphere, 1: Box, 2: Torus, 3: Plane
+        int type;       // 0: Sphere, 1: Box, 2: Torus
         vec3 position;
-        vec3 size;      // x=radius/width, y=height, z=depth (context dependent)
+        vec3 size;      // x=radius/width, y=height, z=depth
         vec3 color;
         float blend;    // Smoothness factor
         int operation;  // 0: Union, 1: Subtract, 2: Intersect
@@ -32,6 +32,46 @@ export const fragmentShader = /* glsl */`
 
     uniform Shape uShapes[MAX_SHAPES];
     uniform int uShapeCount;
+
+    // --- Noise & Terrain Functions ---
+
+    float hash(float n) { return fract(sin(n) * 43758.5453123); }
+    
+    // Simple Value Noise
+    float noise(vec2 x) {
+        vec2 p = floor(x);
+        vec2 f = fract(x);
+        f = f * f * (3.0 - 2.0 * f);
+        float n = p.x + p.y * 57.0;
+        return mix(mix(hash(n + 0.0), hash(n + 1.0), f.x),
+                   mix(hash(n + 57.0), hash(n + 58.0), f.x), f.y);
+    }
+
+    // FBM for terrain detail
+    float fbm(vec2 p) {
+        float f = 0.0;
+        float w = 0.5;
+        for (int i = 0; i < 3; i++) { // Low octaves for performance
+            f += w * noise(p);
+            p *= 2.0;
+            w *= 0.5;
+        }
+        return f;
+    }
+
+    float getTerrainHeight(vec2 p) {
+        // Large scale features
+        float h = noise(p * 0.08) * 4.0;
+        
+        // Detail
+        h += fbm(p * 0.4) * 0.8;
+        
+        // Flatten valley at center for play area
+        float d = length(p);
+        h = mix(0.0, h, smoothstep(5.0, 15.0, d));
+        
+        return h - 3.0; // Base floor level
+    }
 
     // --- SDF Primitives ---
 
@@ -49,14 +89,8 @@ export const fragmentShader = /* glsl */`
         return length(q) - t.y;
     }
 
-    float sdPlane(vec3 p, vec3 n, float h) {
-        // n must be normalized
-        return dot(p, n) + h;
-    }
+    // --- Boolean Operations ---
 
-    // --- Boolean Operations with Material Mixing ---
-
-    // Returns vec4(dist, color.r, color.g, color.b)
     vec4 opSmoothUnion(vec4 d1, vec4 d2, float k) {
         float h = clamp(0.5 + 0.5 * (d2.x - d1.x) / k, 0.0, 1.0);
         float dist = mix(d2.x, d1.x, h) - k * h * (1.0 - h);
@@ -65,12 +99,9 @@ export const fragmentShader = /* glsl */`
     }
 
     vec4 opSmoothSubtraction(vec4 d1, vec4 d2, float k) {
-        // Subtract d1 from d2
         float h = clamp(0.5 - 0.5 * (d2.x + d1.x) / k, 0.0, 1.0);
         float dist = mix(d2.x, -d1.x, h) + k * h * (1.0 - h);
-        // During subtraction, we usually keep the color of the object being cut into (d2)
-        // creating a "core" color effect slightly at the boundary
-        vec3 color = mix(d2.yzw, d1.yzw, h); 
+        vec3 color = mix(d2.yzw, d1.yzw, h);
         return vec4(dist, color);
     }
     
@@ -78,22 +109,33 @@ export const fragmentShader = /* glsl */`
         return (d1.x < d2.x) ? d1 : d2;
     }
 
-    // --- The Map (Scene Definition) ---
+    // --- Map (Scene Definition) ---
 
     vec4 map(vec3 p) {
-        // Initialize with a far distance
-        vec4 res = vec4(1000.0, 0.0, 0.0, 0.0); // dist, r, g, b
+        // 1. Base Terrain
+        float h = getTerrainHeight(p.xz);
         
-        // Add a base floor plane
-        float dPlane = p.y + 1.0; 
+        // Estimator: p.y - h is vertical distance. 
+        // We multiply by 0.4 to keep raymarching conservative/stable on slopes.
+        float dTerrain = (p.y - h) * 0.4;
         
-        // Grid pattern for floor
-        vec3 floorCol = (mod(floor(p.x) + floor(p.z), 2.0) == 0.0) 
-            ? vec3(0.15) 
-            : vec3(0.1);
+        // Procedural Grid Texture
+        vec2 gridUV = p.xz;
+        float gridSize = 8.0; // "Chunk" size visualization
+        vec2 grid = abs(fract(gridUV / gridSize) - 0.5);
+        float gridLine = 1.0 - smoothstep(0.48, 0.5, max(grid.x, grid.y));
         
-        res = vec4(dPlane, floorCol);
+        // Terrain Color
+        vec3 colTerrain = mix(
+            vec3(0.15, 0.18, 0.15), // Dark Ground
+            vec3(0.2, 0.25, 0.2),   // Lighter Ground
+            noise(p.xz * 0.2)
+        );
+        colTerrain = mix(colTerrain, vec3(0.3, 0.3, 0.35), gridLine * 0.3); // Add grid lines
 
+        vec4 res = vec4(dTerrain, colTerrain);
+
+        // 2. Combine with Shapes
         for(int i = 0; i < MAX_SHAPES; i++) {
             if(i >= uShapeCount) break;
             if(!uShapes[i].active) continue;
@@ -101,25 +143,16 @@ export const fragmentShader = /* glsl */`
             vec3 localP = p - uShapes[i].position;
             float d = 0.0;
 
-            if(uShapes[i].type == 0) {
-                d = sdSphere(localP, uShapes[i].size.x);
-            } else if (uShapes[i].type == 1) {
-                d = sdBox(localP, uShapes[i].size);
-            } else if (uShapes[i].type == 2) {
-                d = sdTorus(localP, uShapes[i].size.xy);
-            }
+            if(uShapes[i].type == 0) d = sdSphere(localP, uShapes[i].size.x);
+            else if (uShapes[i].type == 1) d = sdBox(localP, uShapes[i].size);
+            else if (uShapes[i].type == 2) d = sdTorus(localP, uShapes[i].size.xy);
 
             vec4 shapeRes = vec4(d, uShapes[i].color);
             float k = uShapes[i].blend;
 
-            if(uShapes[i].operation == 0) {
-                 res = opSmoothUnion(res, shapeRes, k);
-            } else if(uShapes[i].operation == 1) {
-                // Subtract this shape FROM the scene
-                res = opSmoothSubtraction(shapeRes, res, k);
-            } else {
-                res = opUnion(res, shapeRes);
-            }
+            if(uShapes[i].operation == 0) res = opSmoothUnion(res, shapeRes, k);
+            else if(uShapes[i].operation == 1) res = opSmoothSubtraction(shapeRes, res, k);
+            else res = opUnion(res, shapeRes);
         }
 
         return res;
@@ -128,7 +161,7 @@ export const fragmentShader = /* glsl */`
     // --- Raymarching ---
 
     vec3 calcNormal(vec3 p) {
-        const float h = 0.001;
+        const float h = 0.01; // Larger epsilon for smooth terrain normals
         const vec2 k = vec2(1, -1);
         return normalize(
             k.xyy * map(p + k.xyy * h).x +
@@ -138,11 +171,10 @@ export const fragmentShader = /* glsl */`
         );
     }
 
-    // Soft shadows
     float softShadow(vec3 ro, vec3 rd, float mint, float maxt, float k) {
         float res = 1.0;
         float t = mint;
-        for(int i = 0; i < 32; i++) { // Fewer steps for shadow for perf
+        for(int i = 0; i < 16; i++) { // Low iterations for shadows
             float h = map(ro + rd * t).x;
             if( h < 0.001 ) return 0.0;
             res = min(res, k * h / t);
@@ -153,7 +185,6 @@ export const fragmentShader = /* glsl */`
     }
 
     void main() {
-        // Setup ray for full screen quad
         vec2 screenPos = (vUv - 0.5) * 2.0;
         screenPos.x *= uResolution.x / uResolution.y;
 
@@ -162,50 +193,52 @@ export const fragmentShader = /* glsl */`
         vec3 right = normalize(cross(forward, uCamUp));
         vec3 up = cross(right, forward);
         
-        // Ray direction based on FOV
         float fovScale = tan(uFov * 0.5 * 3.14159 / 180.0);
         vec3 rd = normalize(forward + (screenPos.x * right + screenPos.y * up) * fovScale);
 
-        // March
         float t = 0.0;
         float maxDist = 100.0;
         vec4 res = vec4(-1.0);
         
-        int steps = 0;
-        for(int i = 0; i < 128; i++) {
+        // Raymarch
+        for(int i = 0; i < 100; i++) {
             vec3 p = ro + rd * t;
             res = map(p);
-            if(abs(res.x) < 0.001 || t > maxDist) break;
+            // Dynamic threshold based on distance to reduce artifacts at distance
+            if(abs(res.x) < 0.001 * (1.0 + t * 0.1) || t > maxDist) break;
             t += res.x;
-            steps++;
         }
 
-        vec3 col = vec3(0.05, 0.08, 0.1); // Background / Fog
+        vec3 col = vec3(0.0);
+        
+        // Sky Gradient
+        vec3 skyCol = mix(vec3(0.6, 0.7, 0.8), vec3(0.1, 0.2, 0.4), rd.y * 0.5 + 0.5);
 
         if(t < maxDist) {
             vec3 p = ro + rd * t;
             vec3 n = calcNormal(p);
-            vec3 mate = res.yzw; // Material color
+            vec3 mate = res.yzw;
 
-            // Lighting
-            vec3 sunDir = normalize(vec3(0.8, 0.4, 0.2));
+            vec3 sunDir = normalize(vec3(0.6, 0.5, 0.5));
             float sunDif = clamp(dot(n, sunDir), 0.0, 1.0);
-            float sunSha = softShadow(p + n * 0.01, sunDir, 0.02, 5.0, 16.0);
+            float sunSha = softShadow(p + n * 0.1, sunDir, 0.1, 10.0, 8.0);
             
             vec3 skyDir = vec3(0.0, 1.0, 0.0);
             float skyDif = clamp(0.5 + 0.5 * dot(n, skyDir), 0.0, 1.0);
             
             vec3 lin = vec3(0.0);
-            lin += 1.2 * sunDif * vec3(1.0, 0.9, 0.7) * sunSha;
-            lin += 0.3 * skyDif * vec3(0.5, 0.7, 1.0);
+            lin += 1.5 * sunDif * vec3(1.0, 0.95, 0.8) * sunSha;
+            lin += 0.5 * skyDif * vec3(0.5, 0.6, 0.8);
             
             col = mate * lin;
             
             // Fog
-            col = mix(col, vec3(0.05, 0.08, 0.1), 1.0 - exp(-0.02 * t));
+            col = mix(col, skyCol, 1.0 - exp(-0.01 * t * t));
+        } else {
+            col = skyCol;
         }
 
-        // Gamma correction
+        // Gamma
         col = pow(col, vec3(0.4545));
 
         gl_FragColor = vec4(col, 1.0);
