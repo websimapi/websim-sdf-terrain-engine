@@ -123,8 +123,8 @@ export const fragmentShader = /* glsl */`
         // 1. Base Terrain
         float h = getTerrainHeight(p.xz);
         
-        // Estimator: p.y - h is vertical distance. 
-        float dTerrain = (p.y - h) * 0.4;
+        // Signed distance to terrain heightfield
+        float dTerrain = p.y - h;
         
         // Procedural Grid Texture
         vec2 gridUV = p.xz;
@@ -211,9 +211,9 @@ export const fragmentShader = /* glsl */`
         for(int i = 0; i < 256; i++) {
             vec3 p = ro + rd * t;
             res = map(p);
-            // Dynamic threshold based on distance to reduce artifacts at distance
-            if(abs(res.x) < 0.0005 * (1.0 + t * 0.05) || t > maxDist) break;
-            t += res.x * 0.8;
+            // Hit when distance is small and positive
+            if(res.x < 0.001 * (1.0 + t * 0.1) || t > maxDist) break;
+            t += res.x;
         }
 
         vec3 col = vec3(0.0);
