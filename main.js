@@ -14,7 +14,7 @@ const scene = new THREE.Scene();
 
 // We use a dummy camera for controls, but the shader calculates the real rays
 const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 3, 6);
+camera.position.set(0, 4, 8);
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { vertexShader, fragmentShader } from './shaders.js';
 
-const MAX_SHAPES = 32;
+const MAX_SHAPES = 16;
 
 export const SHAPE_TYPES = {
     SPHERE: 0,

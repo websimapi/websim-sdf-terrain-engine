@@ -19,7 +19,7 @@ export const fragmentShader = /* glsl */`
     uniform float uFov;
 
     // SDF Data
-    #define MAX_SHAPES 32
+    #define MAX_SHAPES 16
     struct Shape {
         int type;       // 0: Sphere, 1: Box, 2: Torus
         vec3 position;
@@ -35,16 +35,27 @@ export const fragmentShader = /* glsl */`
 
     // --- Noise & Terrain Functions ---
 
-    float hash(float n) { return fract(sin(n) * 43758.5453123); }
-    
-    // Simple Value Noise
-    float noise(vec2 x) {
-        vec2 p = floor(x);
-        vec2 f = fract(x);
-        f = f * f * (3.0 - 2.0 * f);
-        float n = p.x + p.y * 57.0;
-        return mix(mix(hash(n + 0.0), hash(n + 1.0), f.x),
-                   mix(hash(n + 57.0), hash(n + 58.0), f.x), f.y);
+    // 2D Random
+    float random (in vec2 st) {
+        return fract(sin(dot(st.xy, vec2(12.9898,78.233))) * 43758.5453123);
+    }
+
+    // 2D Value Noise
+    float noise (in vec2 st) {
+        vec2 i = floor(st);
+        vec2 f = fract(st);
+
+        // Cubic Hermite Curve
+        f = f*f*(3.0-2.0*f);
+
+        float a = random(i);
+        float b = random(i + vec2(1.0, 0.0));
+        float c = random(i + vec2(0.0, 1.0));
+        float d = random(i + vec2(1.0, 1.0));
+
+        return mix(a, b, f.x) +
+                (c - a)* f.y * (1.0 - f.x) +
+                (d - b) * f.x * f.y;
     }
 
     // FBM for terrain detail
@@ -61,16 +72,13 @@ export const fragmentShader = /* glsl */`
 
     float getTerrainHeight(vec2 p) {
         // Large scale features
-        float h = noise(p * 0.08) * 4.0;
+        float h = noise(p * 0.1) * 3.0;
         
         // Detail
-        h += fbm(p * 0.4) * 0.8;
+        h += fbm(p * 0.5) * 1.0;
         
-        // Flatten valley at center for play area
-        float d = length(p);
-        h = mix(0.0, h, smoothstep(5.0, 15.0, d));
-        
-        return h - 3.0; // Base floor level
+        // Lift the terrain up so it's visible (camera at y=4, terrain base around y=-1.5)
+        return h - 1.5; 
     }
 
     // --- SDF Primitives ---
@@ -116,22 +124,22 @@ export const fragmentShader = /* glsl */`
         float h = getTerrainHeight(p.xz);
         
         // Estimator: p.y - h is vertical distance. 
-        // We multiply by 0.4 to keep raymarching conservative/stable on slopes.
-        float dTerrain = (p.y - h) * 0.4;
+        // We multiply by 0.5 to keep raymarching conservative/stable on slopes.
+        float dTerrain = (p.y - h) * 0.5;
         
         // Procedural Grid Texture
         vec2 gridUV = p.xz;
-        float gridSize = 8.0; // "Chunk" size visualization
+        float gridSize = 4.0; 
         vec2 grid = abs(fract(gridUV / gridSize) - 0.5);
         float gridLine = 1.0 - smoothstep(0.48, 0.5, max(grid.x, grid.y));
         
         // Terrain Color
         vec3 colTerrain = mix(
-            vec3(0.15, 0.18, 0.15), // Dark Ground
-            vec3(0.2, 0.25, 0.2),   // Lighter Ground
-            noise(p.xz * 0.2)
+            vec3(0.2, 0.25, 0.2), // Dark Greenish
+            vec3(0.4, 0.4, 0.35),   // Lighter Earth
+            noise(p.xz * 0.1)
         );
-        colTerrain = mix(colTerrain, vec3(0.3, 0.3, 0.35), gridLine * 0.3); // Add grid lines
+        colTerrain = mix(colTerrain, vec3(0.6, 0.6, 0.7), gridLine * 0.5); // Stronger grid lines
 
         vec4 res = vec4(dTerrain, colTerrain);
 
